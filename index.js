@@ -271,7 +271,7 @@ app.get('/api/v1/synchronous_shopping_test_alg_with_data', async (req, res) => {
 
     //Formateo de los parametros para procesarlos con la funcion calculadora
     const [n,m,k] = parameters.split(',').map(n=>parseInt(n));
-    let centers = formatStringToArr(shoping_centers);
+    let centers = formatStringToArr(shopping_centers);
     let road = formatStringToArr(roads);
     //log de variables ingresadas
     console.log(n,m,k, centers, road);
