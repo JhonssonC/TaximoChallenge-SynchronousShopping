@@ -1,53 +1,45 @@
 
-// Import the postgres client
-const { Client } = require("pg");
+// Importaciones necesarias para el funcionamiento
+const { Pool } = require("pg");
 const express = require("express");
 const axios = require('axios');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const url = require('url');
+const { json } = require("body-parser");
+
+//importacion para 
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-
-// Connect to our postgres database
-// These values like `root` and `postgres` will be
-// defined in our `docker-compose-yml` file
-const client = new Client({
-    host: 'dpg-cg79vao2qv28u2s3ss10-a',
-    user: 'root',
-    database: 'root_z3yt',
-    password: 'BhO9CJ05X5uTv45OsuqLzo5n4t8pIhsA',
-    port: 5432,
-});
-
-
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+// Creamos un nuevo pool de conexiones con la cadena de conexión
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
 
-function calcularChecksum(datos) {
-  const hash = crypto.createHash('sha256'); // Selecciona el algoritmo de hash, en este caso SHA-256
-  hash.update(datos); // Ingresa los datos a ser hasheados
-  const checksum = hash.digest('hex'); // Obtiene el resultado del hash en formato hexadecimal
-  return checksum;
-}
-
-
-const execute = async (query) => {
+// Manejador de conexión a la base de datos
+const connectToDB = async (query) => {
   try {
-      await client.connect();     // gets connection
-      await client.query(query);  // sends queries
-      return true;
-  } catch (error) {
-      console.error(error.stack);
-      return false;
-  } finally {
-      await client.end();         // closes connection
+    // Intentamos conectarnos a la base de datos
+    const client = await pool.connect();
+    console.log('Conectado a la base de datos');
+    await client.query(query);  // sends queries 
+    // Cerramos la conexión
+    client.release();
+    return true;
+  } catch (err) {
+    //en caso de error presentamos un error
+    console.error('Error al conectar a la base de datos', err);
+    return false;
   }
 };
 
+//Cadena para crear la tabla si no existe
 const text = `
 CREATE TABLE IF NOT EXISTS REQUEST_ROUTE (
   id SERIAL PRIMARY KEY,
@@ -61,10 +53,70 @@ CREATE TABLE IF NOT EXISTS REQUEST_ROUTE (
 `;
 
 
+// Función para insertar un nuevo registro en la tabla
+const insertData = async (username, parameters, shoping_centers, roads, result) => {
+  try {
+    // Abrimos una conexión a la base de datos
+    const client = await pool.connect();
+
+    // Ejecutamos la consulta de inserción con parámetros seguros
+    const query = {
+      text: `INSERT INTO REQUEST_ROUTE 
+      (username, parameters, shopping_centers, roads, result) 
+      VALUES ($1, $2, $3, $4, $5)`,
+      values: [username, parameters, shoping_centers, roads, result]
+    };
+    let resul = await client.query(query);
+    //console.log (JSON.stringify(result))
+    resul = JSON.parse(JSON.stringify(resul));
+    // Cerramos la conexión
+    client.release();
+    console.log('Registro insertado correctamente');
+    return resul;
+    //en caso de error presentamos log y retornamos un arreglo vacio.
+  } catch (err) {
+    console.error('Error al insertar registro en la base de datos', err);
+    return [];
+  }
+};
+
+// Función para seleccionar todos los registros de la tabla
+const selectData = async (username,parameters,shoping_centers,roads) => {
+  try {
+    // Abrimos una conexión a la base de datos
+    const client = await pool.connect();
+
+    // Ejecutamos la consulta de selección
+    const query = {
+      text: `
+      SELECT * FROM REQUEST_ROUTE 
+      WHERE 
+      username=$1 AND 
+      parameters=$2 AND 
+      shopping_centers=$3 AND 
+      roads=$4
+      `,
+      values: [username,parameters,shoping_centers,roads]
+    };
+    let result = await client.query(query);
+    //console.log (JSON.stringify(result))
+    console.log(result.rows);
+    result = JSON.parse(JSON.stringify(result.rows));
+    // Cerramos la conexión
+    client.release();
+    return result;
+
+    //en caso de error presento un log y retorno un arreglo vacio
+  } catch (err) {
+    console.error('Error al seleccionar registros de la base de datos', err);
+    return [];
+  }
+};
 
 
+//funcion sencilla para visualizar los repositorios de JhonssonC
 app.get('/', async (req, res) => {
-  const username = req.query.username || 'JhonssonC';
+  const username = 'JhonssonC';
   try {
     const result = await axios.get(
       `https://api.github.com/users/${username}/repos`
@@ -80,15 +132,14 @@ app.get('/', async (req, res) => {
 
     res.send(repos);
   } catch (error) {
-    res.status(400).send('Error while getting list of repositories');
+    res.status(400).send('Error al consultar Repositorios');
   }
 });
 
 
 
-
+// herramienta de generacionde de checksum  
 app.get('/api/v1/userchecksum', (req, res) => {
-
   const parsedUrl = url.parse(req.url, true);
   const query = parsedUrl.query;
   let usuario = query.user.toString();
@@ -104,104 +155,157 @@ app.get('/api/v1/userchecksum', (req, res) => {
 
 
 
-app.post('/api/v1/synchronous_shopping', (req, res) => {
+//Url para produccion
+app.post('/api/v1/synchronous_shopping', async (req, res) => {
+  //se obtiene los parametros de entrada del request
   const { username, parameters, shoping_centers, roads, checksum } = req.body;
-
-  console.log(username, parameters, shoping_centers, roads, checksum);
-
-  const checksumRecibido = req.body.checksum;
   
-  // Calcular el checksum de los datos recibidos
-  const checksumCalculado = calcularChecksum('taximo_api_user'/*username*/);
-
-  console.log(username);
-  console.log(checksumCalculado);
-  console.log(checksumRecibido);
+  // Calcular el checksum de username recibido
+  const checksumCalculado = calcularChecksum(username.toString());
   
   // Comparar el checksum recibido con el checksum calculado
-  if (checksumRecibido === checksumCalculado) {
+  if (checksum == checksumCalculado && 'taximo_api_user'===username.toString()) {
     let time = undefined;
     try {
+      //formateo de variables para uso de función de calculo
       const [n,m,k] = parameters.split(',').map(n=>parseInt(n));
       let centers = formatStringToArr(shoping_centers);
       let road = formatStringToArr(roads);
-      console.log(n,m,k, centers, road);
       
+      console.log(n,m,k, centers, road);//se imprimen por log las variables
+
+      //se ejecuta select a la Bd
+      selectData(username,parameters,shoping_centers,roads).then((data)=>{
+        //Si hay datos referentes al calculo en la BD solo se procede a presentar la respuesta
+        if (data.length>0){
+          time = data[data.length-1].result;
+          console.log('minimo timepo consultado (no calculado)',time);
+          res.json({ minimum_time: time });
+
+        //Si no hay datos del calculo en la BD se procede a calcular
+        }else{
+          console.log('Se procede a Calcular...');
+          //se obtiene el tiempo en base a la funcion de algoritmo que permite obtener el tiempo minimo
+          time = findShortestPath(n,m,k, centers, road);
+          //Se agreag a la BD la consulta
+          insertData(username,parameters,shoping_centers,roads,time).then((insrt)=>{
+            console.log('Se guardo minimo tiempo calculado: ', time, insrt);
+            res.json({ minimum_time: time });// Envía el resultado en formato JSON
+
+          //en caso de error se presenta el respectivo log y se retorna en estado 400 el request
+          }).catch(reason=>{
+            console.error('Error al ejecutar Insert', JSON.stringify(reason));
+            res.status(400).send('Error');
+          });
+        }
+      }).catch(reason=>{
+        console.error('Error al ejecutar Select', JSON.stringify(reason));
+        res.status(400).send('Error');
+      });
+    } catch (error) {
+      console.error('Error', JSON.stringify(error));
+      res.status(400).send('Error');
+    }
+  } else {
+    console.warn('Checksum no válido');
+    res.status(400).send('Checksum no válido');
+  }
+});
+
+
+//Url para testeo de algoritmo (necesita los mismos parametros que la funcion anterior)
+//la diferencia radica en que esta funcion no verifica en la base de datos sino que siempre consulta
+//tampoco guarda registro de lo consultado, pero si requiere un parametro de nombre especifico
+app.post('/api/v1/synchronous_shopping_test_alg', async (req, res) => {
+  
+  //captura de variables de request
+  const { username, parameters, shoping_centers, roads, checksum } = req.body;
+  
+  // Calcular el checksum de los datos recibidos
+  const checksumCalculado = calcularChecksum('taximo_api_user'/*username*/);
+ 
+  // Comparar el checksum recibido con el checksum calculado
+  if (checksum == checksumCalculado && 'taximo_api_user'=== username.toString()) {
+    //variable para almacenar el tiempo a retornar
+    let time = undefined;
+    try {
+
+      //Formateo de los parametros para procesarlos con la funcion calculadora
+      const [n,m,k] = parameters.split(',').map(n=>parseInt(n));
+      let centers = formatStringToArr(shoping_centers);
+      let road = formatStringToArr(roads);
+      //log de variables ingresadas
+      console.log(n,m,k, centers, road);
+      console.log('Se procede a Calcular...');
+      
+      //se obtiene el tiempo en base a la funcion de algoritmo que permite obtener el tiempo minimo
       time = findShortestPath(n,m,k, centers, road);
 
       res.json({ minimum_time: time });// Envía el resultado en formato JSON
-
+      
+      //control de errores
     } catch (error) {
-      res.status(400).send('Formato de ingreso no valido');
+      console.error('Error', JSON.stringify(error));
+      res.status(400).send('Error');
     }
   } else {
-    // Los datos no son válidos, responder con un error
+    console.warn('Checksum no válido');
     res.status(400).send('Checksum no válido');
   }
-  
-  
-
 });
 
+
+
+//url para atender requerimiento get de caso de prueba.
+app.get('/api/v1/synchronous_shopping_test_alg_with_data', async (req, res) => {
+  
+  //en este caso no se obtiene los paramtros del request, mas bien se los especifica estaticamente
+  const parameters = '5,5,5';
+  const shopping_centers = '1,1-1,2-1,3-1,4-1,5';
+  const roads = '1,2,10-1,3,10-2,4,10-3,5,10-4,5,10';
+
+  //Se presenta por log
+  console.log(parameters, shopping_centers, roads);
+
+  try {
+
+    //Formateo de los parametros para procesarlos con la funcion calculadora
+    const [n,m,k] = parameters.split(',').map(n=>parseInt(n));
+    let centers = formatStringToArr(shoping_centers);
+    let road = formatStringToArr(roads);
+    //log de variables ingresadas
+    console.log(n,m,k, centers, road);
+    console.log('Se procede a Calcular...');
+
+    const minimum_time = findShortestPath(n,m,k, centers, road);
+
+    res.json({ parameters, shopping_centers, roads, minimum_time });// Envía el resultado en formato JSON
+    
+    //En caso de error
+  } catch (error) {
+    console.error('Error', JSON.stringify(error));
+    res.status(400).send('Error');
+  }
+
+  
+});
+
+
+
+
+
+//Funcion para dar formato transfor
 function formatStringToArr(str){
   return str.toString().split('-').map(v=>v.split(',').map(e=>parseInt(e)));
 }
 
-
-function handleStr(string){
-    return string.replace(/^s+|s+$/g,"");
+//funcion calculadora de checksum
+function calcularChecksum(datos) {
+  const hash = crypto.createHash('sha256'); // Selecciona el algoritmo de hash, en este caso SHA-256
+  hash.update(datos); // Ingresa los datos a ser hasheados
+  const checksum = hash.digest('hex'); // Obtiene el resultado del hash en formato hexadecimal
+  return checksum;
 }
-
-// Funcion para insertar datos
-/*
-const username = 'taximo_api_user';
-const parameters = '5,5,5';
-const shoping_centers = '1,1-1,2-1,3-1,4-1,5';
-const roads = '1,2,10-1,3,10-2,4,10-3,5,10-4,5,10';
-const checksum = 'cd7ced88fb72ee862940d5664555251f9ba044d8478a71a7b70b04bd708c2796';
-
-insertarDatos(username, parameters, shoping_centers, roads, checksum, (error, result) => {
-  if (error) {
-    console.error(error);
-  } else {
-    console.log('Datos insertados correctamente');
-  }
-});
-*/
-function insertarDatos(username, parameters, shoping_centers, roads, checksum, callback) {
-  pool.query('INSERT INTO nombre_de_la_tabla (parameters, shoping_centers, roads, checksum) VALUES ($1, $2, $3, $4)', 
-  [parameters, shoping_centers, roads, checksum], (error, result) => {
-    if (error) {
-      console.error(error);
-      callback(error, null);
-    } else {
-      callback(null, result);
-    }
-  });
-}
-
-// Función para consultar los datos de la tabla
-/*
-consultarDatos((error, data) => {
-  if (error) {
-    console.error(error);
-  } else {
-    console.log(data);
-  }
-});
-*/
-function consultarDatos(username, parameters, shoping_centers, roads, checksum, callback) {
-  pool.query('SELECT * FROM nombre_de_la_tabla', (error, result) => {
-    if (error) {
-      console.error(error);
-      callback(error, null);
-    } else {
-      callback(null, result.rows);
-    }
-  });
-}
-
-
 
 function findShortestPath(n, m, k, centers, roads) {
   //declaracion e inicializacion de variables
@@ -631,13 +735,13 @@ function findShortestPath(n, m, k, centers, roads) {
 // asynchronously for the database connection to establish before listening
 (async () => {
 
-  // execute(text).then(result => {
-  //   if (result) {
-  //       console.log('Tabla Creada');
-  //   }else{
-  //     console.log('No se creó la tabla');
-  //   }
-  // });
+  connectToDB(text).then(result => {
+    if (result) {
+        console.log('Tabla Creada');
+    }else{
+      console.log('No se creó la tabla');
+    }
+  });
 
   app.listen(PORT, () => {
     console.log(`server started, listening on port ${PORT}`);
