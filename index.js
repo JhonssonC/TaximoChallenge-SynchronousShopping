@@ -608,17 +608,19 @@ function findShortestPath(n, m, k, centers, roads) {
     //Indica el inicio o punto de Partida/Step/Punto Actual de los Gatos (BC, LC)
     let start = 0;
     //Indica el punto propuesto de finalizacion de ambos gatos.
-    let end = optionsRoutes[i].id - 1;
-    //ruta de LC (arreglo de Rutas) de para comprar tipos de pescado
-    let routeLC = optionsRoutes.slice(end + 1);
+    let end = n - 1;
 
     //Log para identificar la ruta propuesta y cada iteraccion.
+
     console.log('----------------------------------------end: ', end);
 
-    console.log(optionsRoutes, [], routeLC);
+    //ruta de BC (arreglo de Rutas) de para comprar tipos de pescado
+    let routeBC = optionsRoutes.slice(0, i + 1);
+    //ruta de LC (arreglo de Rutas) de para comprar tipos de pescado
+    let routeLC = optionsRoutes.slice(i + 1);
 
     //Reduccion inicial en base a los tipos comprados
-    [[], routeLC] = reduceDest([], routeLC, typesShop);
+    [routeBC, routeLC] = reduceDest(routeBC, routeLC, typesShop);
 
     //reestructuramos los destinos a razon de lo que se compra en el primer destino
     //en el primer destino siempre estan y parten los 2 Gatos
@@ -629,21 +631,44 @@ function findShortestPath(n, m, k, centers, roads) {
     //recorrer todas las rutas posibles Rutas de compras de BC
     //Mientras haya centros que recorrer con tipos de pescado por comprar recorremos con BC
 
-    [start, visitor1Time, visitor1Path, routeLC, typesShop] = visitEndCente(
-      start,
+    [start, visitor1Time, visitor1Path, routeBC, typesShop] = visitedCentersCat(
       efiRouters,
-      centers,
-      optionsRoutes,
-      end,
+      routeBC,
       typesShop,
       'BC'
     );
 
+    //Si el gato no llego al final
+    if (!(start == end)) {
+      console.log('Hay que llegar al final propuesto al inicio');
+
+      //Declaracion e inicializacion de variables temporales
+      let distanceTmpAct = 0;
+      let completePath = [];
+
+      //Se usa Funcion para llegar a punto propuesto
+      [start, distanceTmpAct, completePath, routeLC, typesShop] = visitEndCente(
+        start,
+        efiRouters,
+        centers,
+        optionsRoutes,
+        end,
+        typesShop,
+        'BC'
+      );
+
+      //Se agrega al path de LC los centros de la ruta encontrada
+      visitor1Path = visitor1Path.concat(completePath);
+
+      //se suma/acumula al tiempo del LC
+      visitor1Time += distanceTmpAct;
+    }
+
     //Terminamos el recorrido de  Mientras haya centros que recorrer con tipos de pescado por comprar BC
     ///////////////////////////////////////////////////////////////////////////////////FIN BC
 
-    //el ultimo punto marcadocomo nuevo start, es el punto de finalizacion para LC
-    end = JSON.parse(JSON.stringify(start));
+    //el ultimo punto marcado como nuevo start, es el punto de finalizacion para LC
+    //end = JSON.parse(JSON.stringify(start));
 
     //El nuevo inicio de LC va a ser cero (0)
     start = 0;
@@ -726,7 +751,6 @@ function findShortestPath(n, m, k, centers, roads) {
   //Se retorna el minimo.
   return minTime;
 }
-
 
 
 
